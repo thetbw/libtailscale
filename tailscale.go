@@ -284,10 +284,8 @@ func TsnetListen(sd C.int, network, addr *C.char, listenerOut *C.int) C.int {
 				netConn.Close()
 				continue
 			}
-			
-			rights := syscall.UnixRights(int(connFd))
-			// TODO err = platform.SendMessage(sp, []byte("hello"), int(connFd), nil, 0)
-			err =  platform.SendMessage(sp, nil, rights, nil, 0)
+
+			err = platform.SendMessage(sp, []byte("hello"), int(connFd), nil, 0)
 			if err != nil {
 				// We handle sp being closed in the read goroutine above.
 				if s.s.Logf != nil {
@@ -299,7 +297,7 @@ func TsnetListen(sd C.int, network, addr *C.char, listenerOut *C.int) C.int {
 			listener.mu.Lock()
 			listener.m[connFd] = netConn.RemoteAddr()
 			listener.mu.Unlock()
-			
+
 			platform.CloseSocket(sp) // now owned by recvmsg
 		}
 	}()
@@ -309,7 +307,7 @@ func TsnetListen(sd C.int, network, addr *C.char, listenerOut *C.int) C.int {
 }
 
 func newConn(s *server, netConn net.Conn, connOut *C.int) error {
-	fds,fdPt, err := platform.GetSocketPair()
+	fds, fdPt, err := platform.GetSocketPair()
 	if err != nil {
 		return err
 	}
