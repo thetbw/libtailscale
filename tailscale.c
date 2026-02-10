@@ -82,101 +82,39 @@ int tailscale_accept(tailscale_listener ld, tailscale_conn* conn_out) {
 	*conn_out = fd;
 	return 0;
 #elif _WIN32
+    // On Windows, we use socketpair to pass connection handles
+    char mbuf[256];
+    WSABUF wsaBuf;
+    DWORD bytesReceived;
+    DWORD flags = 0;
+    int fd;
 
-	// SOCKET ListenSocket = ld;
-	// fd_set readfds;
-	// struct timeval tv;
-	// int result;
+    wsaBuf.buf = mbuf;
+    wsaBuf.len = sizeof(mbuf);
 
-	// // Initialize the set
-	// FD_ZERO(&readfds);
-	// FD_SET(ListenSocket, &readfds);
-
-	// // Set timeout to zero, for non-blocking operation
-	// tv.tv_sec = 1;
-	// tv.tv_usec = 0;
-
-	// result = select(ListenSocket + 1, &readfds, NULL, NULL, &tv);
-
-	// if (result == -1) {
-	// 	printf("select failed with error: %u\n", WSAGetLastError());
-	// } else if (result == 0) {
-	// 	printf("No incoming connections\n");
-	// } else {
-	// 	printf("Socket is ready to accept a connection\n");
-	// }
-	// char mbuf[256];
-	// WSABUF wsaBuf;
-	// DWORD bytesReceived;
-	// DWORD flags = 0;
-	// SOCKET fd;
-
-	// wsaBuf.buf = mbuf;
-	// wsaBuf.len = sizeof(mbuf);
-
-	// if (WSARecv(ld, &wsaBuf, 1, &bytesReceived, &flags, NULL, NULL) == SOCKET_ERROR)
-	// {
-	// 	// Print the error code
-	// 	int error = WSAGetLastError();
-	// 	fprintf(stderr, "WSARecv failed with error: %d\n", error);
-	// 	return -1;
-	// }
-
-	// // Extract the socket descriptor from the received control information
-	// if (WSAGetOverlappedResult(ld, NULL, &bytesReceived, FALSE, &flags) == SOCKET_ERROR)
-	// {
-	// 	int error = WSAGetLastError();
-	// 	fprintf(stderr, "WSAGetOverlappedResult failed with error: %d\n", error);
-	// 	return -1;
-	// }
-	// second attemp
-	// WSADATA wsaData;
-	// int error = WSAStartup(MAKEWORD(2,2), &wsaData);
-    // if (error) {
-    //     printf("WSAStartup() failed with error: %d\n", error);
-    //     return 1;
-    // }
-	// fd =  WSAAccept(ListenSocket + 1, NULL, NULL, NULL, 0);
-	// if (fd == INVALID_SOCKET) 
-	// {	
-	// 	int error = WSAGetLastError();
-	// 	fprintf(stderr, "WSAAccept failed with error: %d\n", error);
-	// 	//return -1;
-	// } 
-	
-	// *conn_out = fd;
-	// return 0;
-	// third attempt
-	// char mbuf[256];
-	// WSABUF wsaBuf;
-	// DWORD bytesReceived;
-	// DWORD flags = 0;
-
-	// wsaBuf.buf = mbuf;
-	// wsaBuf.len = sizeof(mbuf);
-
-	// if (WSARecv(ld, &wsaBuf, 1, &bytesReceived, &flags, NULL, NULL) == SOCKET_ERROR)
-	// {
-	// 	// Print the error code
-	// 	int error = WSAGetLastError();
-	// 	fprintf(stderr, "WSARecv failed with error: %d\n", error);
-	// 	return -1;
-	// }
-
-	// // If WSARecv succeeded, return the socket
-	// *conn_out = ld;
-	// return 0;
-	struct sockaddr clientAddr;
-    int clientAddrSize = sizeof(clientAddr);
-
-    // Accept incoming connection
-    *conn_out = accept(ld, &clientAddr, &clientAddrSize);
-    if (*conn_out == INVALID_SOCKET) {
-        printf("Accept failed with error code: %d\n", WSAGetLastError());
+    // Receive message from socketpair
+    if (WSARecv(ld, &wsaBuf, 1, &bytesReceived, &flags, NULL, NULL) == SOCKET_ERROR) {
+        int error = WSAGetLastError();
+        fprintf(stderr, "WSARecv failed with error: %d\n", error);
         return -1;
     }
 
-    return 0;
+    // The message contains the connection file descriptor.
+    // On Windows, we need to handle this differently than POSIX systems.
+    // The Go side sends the connection FD as an integer in the socketpair.
+    if (bytesReceived >= sizeof(int)) {
+        // The FD is sent in network byte order (big endian), so we need to convert it
+        const char* fd_ptr = mbuf + (bytesReceived - sizeof(int));
+        fd = ((unsigned char)fd_ptr[0] << 24) |
+             ((unsigned char)fd_ptr[1] << 16) |
+             ((unsigned char)fd_ptr[2] << 8) |
+             (unsigned char)fd_ptr[3];
+        *conn_out = fd;
+        return 0;
+    } else {
+        fprintf(stderr, "Received message too small for FD\n");
+        return -1;
+    }
 
 #endif
 }

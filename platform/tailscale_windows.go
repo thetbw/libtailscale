@@ -53,9 +53,19 @@ func SendMessage(fd syscall.Handle, p []byte, connFd int, to syscall.Sockaddr, f
 	}
 	defer syscall.WSACleanup()
 
+	// Prepare message to send both data and file descriptor
+	// We send the connection FD as an integer following the data
+	buf := make([]byte, len(p)+4)
+	copy(buf, p)
+	// Convert connFd to network byte order (big endian) for portability
+	buf[len(p)] = byte(connFd >> 24)
+	buf[len(p)+1] = byte(connFd >> 16)
+	buf[len(p)+2] = byte(connFd >> 8)
+	buf[len(p)+3] = byte(connFd)
+
 	iov := syscall.WSABuf{
-		Len: uint32(len(p)),
-		Buf: &p[0],
+		Len: uint32(len(buf)),
+		Buf: &buf[0],
 	}
 	var flagsUint32 uint32 = uint32(flags)
 	err = syscall.WSASend(fd, &iov, 1, &written, flagsUint32, nil, nil)
@@ -63,8 +73,8 @@ func SendMessage(fd syscall.Handle, p []byte, connFd int, to syscall.Sockaddr, f
 		return err
 	}
 
+	fmt.Printf("Sent message with FD: %d\n", connFd)
 	return nil
-
 }
 
 func Shutdown(fd syscall.Handle, how int) error {
